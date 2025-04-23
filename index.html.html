@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VetAssist AI - Assistente Veterinário</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .markdown-content h1 { font-size: 1.5rem; font-weight: bold; margin-top: 1.5rem; margin-bottom: 0.5rem; }
+        .markdown-content h2 { font-size: 1.25rem; font-weight: bold; margin-top: 1.25rem; margin-bottom: 0.5rem; }
+        .markdown-content p { margin-bottom: 1rem; line-height: 1.6; }
+        .markdown-content ul { list-style-type: disc; margin-left: 1.5rem; margin-bottom: 1rem; }
+        .markdown-content ol { list-style-type: decimal; margin-left: 1.5rem; margin-bottom: 1rem; }
+        .markdown-content code { background-color: #f1f1f1; padding: 0.2rem 0.4rem; border-radius: 0.25rem; }
+        .markdown-content pre { background-color: #f1f1f1; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; margin-bottom: 1rem; }
+        .markdown-content blockquote { border-left: 4px solid #e2e8f0; padding-left: 1rem; margin-left: 0; margin-bottom: 1rem; }
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="gradient-bg text-white py-8 mb-8">
+        <div class="container mx-auto px-4 max-w-4xl">
+            <header class="text-center">
+                <h1 class="text-4xl font-bold mb-4">VetAssist AI</h1>
+                <p class="text-xl opacity-90">Seu Assistente de Estudos Veterinários Inteligente</p>
+            </header>
+        </div>
+    </div>
+
+    <div class="container mx-auto px-4 max-w-4xl">
+        <main>
+            <div class="bg-white rounded-lg shadow-lg p-6 mb-8">
+                <div class="mb-6">
+                    <select id="category" class="w-full p-3 mb-4 rounded-lg border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-colors">
+                        <option value="geral">Categoria Geral</option>
+                        <option value="anatomia">Anatomia</option>
+                        <option value="patologia">Patologia</option>
+                        <option value="clinica">Clínica</option>
+                        <option value="cirurgia">Cirurgia</option>
+                        <option value="farmacologia">Farmacologia</option>
+                    </select>
+
+                    <div class="flex gap-3">
+                        <textarea 
+                            id="question" 
+                            rows="4" 
+                            class="flex-1 p-3 rounded-lg border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-colors resize-none"
+                            placeholder="Digite sua pergunta sobre veterinária..."
+                        ></textarea>
+                        <button 
+                            id="send-button"
+                            class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors focus:ring-2 focus:ring-blue-300 disabled:opacity-50"
+                        >
+                            Enviar
+                        </button>
+                    </div>
+                </div>
+
+                <div id="loading" class="hidden">
+                    <div class="flex items-center justify-center py-4">
+                        <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent"></div>
+                    </div>
+                </div>
+
+                <div id="response-container" class="mt-6 markdown-content">
+                    <!-- As respostas serão inseridas aqui -->
+                </div>
+            </div>
+
+            <div id="history-container" class="bg-white rounded-lg shadow-lg p-6">
+                <h2 class="text-xl font-bold mb-4">Histórico de Perguntas</h2>
+                <div id="history-list">
+                    <!-- O histórico será inserido aqui -->
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // Configuração inicial
+        const OPENAI_API_KEY = "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";
+        
+        marked.setOptions({
+            breaks: true,
+            gfm: true
+        });
+
+        // Elementos DOM
+        const questionInput = document.getElementById('question');
+        const sendButton = document.getElementById('send-button');
+        const responseContainer = document.getElementById('response-container');
+        const loadingIndicator = document.getElementById('loading');
+        const historyList = document.getElementById('history-list');
+
+        // Função para mostrar mensagens de erro de forma amigável
+        function showError(message) {
+            responseContainer.innerHTML = `
+                <div class="bg-red-50 text-red-600 p-4 rounded-lg">
+                    <p class="font-bold">Erro:</p>
+                    <p>${message}</p>
+                </div>
+            `;
+        }
+
+        // Banco de dados local
+        class VetAssistDB {
+            constructor() {
+                this.dbKey = 'vetassist_data';
+                this.savedData = JSON.parse(localStorage.getItem(this.dbKey)) || [];
+            }
+            
+            saveItem(question, answer, category) {
+                this.savedData.unshift({
+                    id: Date.now().toString(),
+                    question,
+                    answer,
+                    category,
+                    date: new Date().toISOString()
+                });
+                localStorage.setItem(this.dbKey, JSON.stringify(this.savedData));
+                this.updateHistoryDisplay();
+            }
+            
+            getItems() {
+                return this.savedData;
+            }
+            
+            clearAll() {
+                this.savedData = [];
+                localStorage.removeItem(this.dbKey);
+                this.updateHistoryDisplay();
+            }
+
+            updateHistoryDisplay() {
+                historyList.innerHTML = this.savedData
+                    .slice(0, 5)
+                    .map(item => `
+                        <div class="border-b border-gray-200 py-4 last:border-0">
+                            <div class="font-medium text-blue-600 mb-2">${item.question}</div>
+                            <div class="text-sm text-gray-600">${new Date(item.date).toLocaleDateString()}</div>
+                        </div>
+                    `)
+                    .join('');
+            }
+        }
+
+        const db = new VetAssistDB();
+        db.updateHistoryDisplay();
+
+        // Função principal para enviar perguntas
+        async function sendQuestion() {
+            const question = questionInput.value.trim();
+            if (!question) {
+                showError('Por favor, digite uma pergunta.');
+                return;
+            }
+
+            loadingIndicator.classList.remove('hidden');
+            responseContainer.innerHTML = '';
+            sendButton.disabled = true;
+            questionInput.disabled = true;
+
+            try {
+                console.log('Enviando requisição para a API...');
+                const response = await fetch('http://localhost:3000/api/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        question: question
+                    })
+                });
+
+                console.log('Status da resposta:', response.status);
+                
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    console.error('Erro completo:', errorData);
+                    throw new Error(errorData.error || 'Erro ao comunicar com o servidor');
+                }
+
+                const data = await response.json();
+                console.log('Resposta recebida com sucesso:', data);
+                
+                if (!data.content || !data.content[0] || !data.content[0].text) {
+                    throw new Error('Resposta da API não contém o formato esperado');
+                }
+
+                const answer = data.content[0].text;
+                responseContainer.innerHTML = marked.parse(answer);
+                
+                const category = document.getElementById('category').value;
+                db.saveItem(question, answer, category);
+                
+                questionInput.value = '';
+
+            } catch (error) {
+                console.error('Erro detalhado:', error);
+                showError(`${error.message}\n\nPor favor, verifique se:\n1. A chave da API está correta\n2. Você tem permissão para usar a API\n3. Sua conexão com a internet está funcionando`);
+            } finally {
+                loadingIndicator.classList.add('hidden');
+                sendButton.disabled = false;
+                questionInput.disabled = false;
+            }
+        }
+
+        // Event listeners
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('Página carregada, inicializando...');
+            sendButton.addEventListener('click', sendQuestion);
+            questionInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendQuestion();
+                }
+            });
+        });
+    </script>
+</body>
+</html>
